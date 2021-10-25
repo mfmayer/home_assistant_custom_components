@@ -31,4 +31,9 @@ def thread_func(hass):
     _LOGGER.debug("thread_func()")
     while True:
         time.sleep(5)
+        data = bytes([0xAB, 0xFC, 0x3F, 0x0C, 0xFC, 0x3F, 0x0C, 0xAB, 0x3F, 0x00, 0x00, 0x00])
         _LOGGER.debug("thread_func() - running")
+        for mac in sensors:
+            sensor = sensors[mac]
+            _LOGGER.debug(sensor)
+            asyncio.run_coroutine_threadsafe(sensor.newData(data), hass.loop)

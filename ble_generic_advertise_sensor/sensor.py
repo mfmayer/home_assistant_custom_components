@@ -11,7 +11,7 @@ from typing import Final
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import (CONF_NAME, CONF_MAC, DATA_BYTES, TEMP_CELSIUS)
+from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_UNIT_OF_MEASUREMENT, DATA_BYTES, TEMP_CELSIUS)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
@@ -37,11 +37,14 @@ class Sensor:
         _LOGGER.debug("__init__() called: %s", self._name)
         self._conf = conf
         self._hass = hass
-
+        self._unpackFormat = ""
         self._entities = []
         confEntities = conf.get("entities")
         for ce in confEntities:
-            self._entities.append(Entity(self, ce))
+            entityName = ce.get(CONF_NAME)
+            entityUnit = ce.get(CONF_UNIT_OF_MEASUREMENT)
+            self._entities.append(Entity(self, entityName, entityUnit))
+            self._unpackFormat += ce.get("unpack_format")
 
         # self._state = None
         # self._test = 5
@@ -53,17 +56,30 @@ class Sensor:
     def entities(self):
         return self._entities
 
-    async def newData(self, hass, bytes):
-        _LOGGER.debug("newData() called")
+    async def newData(self, bytes):
+        _LOGGER.debug("newData() called - %s %s %d", self._unpackFormat, bytes.hex(), struct.calcsize(self._unpackFormat))
+        if len(bytes) == struct.calcsize(self._unpackFormat):
+            values = struct.unpack(self._unpackFormat, bytes)
+            _LOGGER.info("newData() called: entities: %d | unpack_format: %s | len(values): %d", len(self._entities), self._unpackFormat, len(values))
+            if len(values) == len(self._entities):
+                i = 0
+                while i < len(self._entities):
+                    entity = self._entities[i]
+                    await entity.set_value(values[i])
+                    i = i + 1
+
+        # for entity in self._entities:
+        #     await entity.set_value(bytes)
 
 
 class Entity(SensorEntity):
 
-    def __init__(self, sensor, entityConf):
+    def __init__(self, sensor, name, unit):
         """Initialize the entity."""
         self._sensor = sensor
-        self._entityConf = entityConf
-        self._name = entityConf.get(CONF_NAME)
+        # self._entityConf = entityConf
+        self._name = name
+        self._unit = unit
         self._value = None
 
     async def set_value(self, value):
@@ -71,13 +87,12 @@ class Entity(SensorEntity):
         self._value = value
         self.async_schedule_update_ha_state()
 
-    async def async_added_to_hass(self):
-        _LOGGER.debug("async_added_to_hass() called")
+    # async def async_added_to_hass(self):
+    #     _LOGGER.debug("async_added_to_hass() called")
 
     @property
     def should_poll(self) -> bool:
         """Return True if entity has to be polled for state.
-
         False if entity pushes its state to HA.
         """
         return False
@@ -98,7 +113,7 @@ class Entity(SensorEntity):
     def unit_of_measurement(self) -> str:
         """Return the unit of measurement."""
         _LOGGER.debug("unit_of_measurement() called")
-        return TEMP_CELSIUS
+        return self._unit
 
     async def async_update(self):
         """Fetch new state data for the sensor.
