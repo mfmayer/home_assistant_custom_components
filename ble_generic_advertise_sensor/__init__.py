@@ -1,5 +1,6 @@
 """The example sensor integration."""
 from __future__ import annotations
+from bluepy.btle import Scanner
 from threading import Thread
 import time
 import logging
@@ -30,10 +31,10 @@ async def async_setup(hass: HomeAssistant, config):
 def thread_func(hass):
     _LOGGER.debug("thread_func()")
     while True:
-        time.sleep(5)
-        data = bytes([0xAB, 0xFC, 0x3F, 0x0C, 0xFC, 0x3F, 0x0C, 0xAB, 0x3F, 0x00, 0x00, 0x00])
-        _LOGGER.debug("thread_func() - running")
-        for mac in sensors:
-            sensor = sensors[mac]
-            _LOGGER.debug(sensor)
-            asyncio.run_coroutine_threadsafe(sensor.newData(data), hass.loop)
+        devices = scanner.scan(5.0)
+        for dev in devices:
+            if dev.addr in sensors:
+                sensor = sensors[dev.addr]
+                data = dev.getValue(255)  # get custom manufacturer data
+                if isinstance(data, bytes):
+                    asyncio.run_coroutine_threadsafe(sensor.newData(data), hass.loop)

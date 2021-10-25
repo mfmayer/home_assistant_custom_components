@@ -46,10 +46,6 @@ class Sensor:
             self._entities.append(Entity(self, entityName, entityUnit))
             self._unpackFormat += ce.get("unpack_format")
 
-        # self._state = None
-        # self._test = 5
-        # add_entities
-
     def name(self) -> str:
         return self._name
 
@@ -68,16 +64,12 @@ class Sensor:
                     await entity.set_value(values[i])
                     i = i + 1
 
-        # for entity in self._entities:
-        #     await entity.set_value(bytes)
-
 
 class Entity(SensorEntity):
 
     def __init__(self, sensor, name, unit):
         """Initialize the entity."""
         self._sensor = sensor
-        # self._entityConf = entityConf
         self._name = name
         self._unit = unit
         self._value = None
@@ -86,9 +78,6 @@ class Entity(SensorEntity):
         _LOGGER.debug("set_value() called")
         self._value = value
         self.async_schedule_update_ha_state()
-
-    # async def async_added_to_hass(self):
-    #     _LOGGER.debug("async_added_to_hass() called")
 
     @property
     def should_poll(self) -> bool:
