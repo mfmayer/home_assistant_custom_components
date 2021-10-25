@@ -11,7 +11,8 @@ from typing import Final
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_UNIT_OF_MEASUREMENT, DATA_BYTES, TEMP_CELSIUS)
+from homeassistant.const import (
+    CONF_NAME, CONF_MAC, CONF_UNIT_OF_MEASUREMENT, DATA_BYTES, TEMP_CELSIUS)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
@@ -53,10 +54,12 @@ class Sensor:
         return self._entities
 
     async def newData(self, bytes):
-        _LOGGER.debug("newData() called - %s %s %d", self._unpackFormat, bytes.hex(), struct.calcsize(self._unpackFormat))
+        _LOGGER.debug("newData() called - %s %s %d", self._unpackFormat,
+                      bytes.hex(), struct.calcsize(self._unpackFormat))
         if len(bytes) == struct.calcsize(self._unpackFormat):
             values = struct.unpack(self._unpackFormat, bytes)
-            _LOGGER.info("newData() called: entities: %d | unpack_format: %s | len(values): %d", len(self._entities), self._unpackFormat, len(values))
+            _LOGGER.info("newData() called: entities: %d | unpack_format: %s | len(values): %d", len(
+                self._entities), self._unpackFormat, len(values))
             if len(values) == len(self._entities):
                 i = 0
                 while i < len(self._entities):

@@ -19,6 +19,7 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 _LOGGER = logging.getLogger(__name__)
 
 sensors = {}
+scanner = Scanner()
 
 
 async def async_setup(hass: HomeAssistant, config):
@@ -37,4 +38,5 @@ def thread_func(hass):
                 sensor = sensors[dev.addr]
                 data = dev.getValue(255)  # get custom manufacturer data
                 if isinstance(data, bytes):
-                    asyncio.run_coroutine_threadsafe(sensor.newData(data), hass.loop)
+                    asyncio.run_coroutine_threadsafe(
+                        sensor.newData(data), hass.loop)
