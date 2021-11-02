@@ -1,7 +1,7 @@
 {
-  "domain": "ble_generic_advertise_sensor",
+  "domain": "ble_generic_sensor",
   "name": "Generic Bluetooth Advertise Sensor",
-  "documentation": "https://github.com/mfmayer/home_assistant_custom_components/ble_generic_advertise_sensor",
+  "documentation": "https://github.com/mfmayer/home_assistant_custom_components/ble_generic_sensor",
   "dependencies": [],
   "codeowners": [],
   "requirements": [],
