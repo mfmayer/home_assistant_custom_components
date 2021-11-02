@@ -12,8 +12,7 @@ from typing import Final
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import (
-    CONF_NAME, CONF_MAC, CONF_UNIT_OF_MEASUREMENT, DATA_BYTES, TEMP_CELSIUS)
+# from homeassistant.const import ()
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
@@ -60,7 +59,7 @@ class DataSource:
         else:
             _LOGGER.debug("Adding entities: 0")
 
-    async def update(self):
+    async def fetchUpdate(self):
         with self.lock:
             return
 
@@ -93,10 +92,11 @@ class ReadDataSource(DataSource):
         self._last_update = -1
         super().__init__(device, name, readConf, True)
 
-    async def update(self):
+    async def fetchUpdate(self):
         if time.monotonic() - self._last_update < self._interval:
             return
 
+        _LOGGER.debug("Fetching update for source: %s", self.name)
         self._last_update = time.monotonic()
         try:
             client = BleakClient(self.device.mac, timeout=5)
@@ -104,13 +104,14 @@ class ReadDataSource(DataSource):
             gattChar = await client.read_gatt_char(self._char_uuid)
             unpacked = struct.unpack(self.unpack_format, gattChar)
             with self.lock:
-                if self._prefix == None:
+                _LOGGER.debug("Data retrieved from source: %s", self.name)
+                if self.prefix == None:
                     self.unpackedData = unpacked
-                elif unpacked[0] == self._prefix:
+                elif unpacked[0] == self.prefix:
                     self.unpackedData = unpacked
 
         except Exception as e:
-            _LOGGER.error(e)
+            _LOGGER.warning(e)
 
 
 class Entity(SensorEntity):
@@ -121,6 +122,8 @@ class Entity(SensorEntity):
         self._index = config.get("index")
         self._name = config.get("name")
         self._unit = config.get("unit_of_measurement")
+        self._device_class = config.get("device_class")
+        self._icon = config.get("icon")
         self._factor = config.get("factor")
         if self._factor == None:
             self._factor = 1.0
@@ -142,13 +145,11 @@ class Entity(SensorEntity):
     @property
     def name(self) -> str:
         """Return the name of the sensor."""
-        _LOGGER.debug("name() called")
-        return self._datasource.device.name + "." + self._name
+        return self._datasource.device.name + "-" + self._name
 
     @property
     def state(self):
         """Return the state of the sensor."""
-        _LOGGER.debug("state() called")
         if self._index < len(self._datasource.unpackedData):
             try:
                 value = self._datasource.unpackedData[self._index]
@@ -161,19 +162,27 @@ class Entity(SensorEntity):
     @property
     def unit_of_measurement(self) -> str:
         """Return the unit of measurement."""
-        _LOGGER.debug("unit_of_measurement() called")
         return self._unit
+
+    @property
+    def icon(self):
+        """Return the icon of the sensor."""
+        return self._icon
+
+    @property
+    def device_class(self):
+        """Return the icon of the sensor."""
+        return self._device_class
 
     async def async_update(self):
         """Fetch new state data for the sensor.
         This is the only method that should fetch new data for Home Assistant.
         """
-        _LOGGER.debug("async_update() called")
-        self._datasource.update()
+        await self._datasource.fetchUpdate()
 
 
 async def async_setup_platform(hass, conf, async_add_entities, discovery_info=None):
-    _LOGGER.warning("async_setup_platform()")
+    _LOGGER.debug("async_setup_platform()")
     readsConf = conf.get("reads")
     adsConf = conf.get("ads")
     entitiesToRegister = []
@@ -212,6 +221,6 @@ async def async_setup_platform(hass, conf, async_add_entities, discovery_info=No
 
     print(entitiesToRegister)
     _LOGGER.debug("entities: %d", len(entitiesToRegister))
-    async_add_entities(entitiesToRegister)
+    async_add_entities(entitiesToRegister, True)
 
     return True
