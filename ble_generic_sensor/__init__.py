@@ -9,6 +9,7 @@ import struct
 import threading
 from typing import Final
 
+from .sensor import devices
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
@@ -45,10 +46,19 @@ async def thread_handler():
     _LOGGER = logging.getLogger(__name__)
     _LOGGER.debug("thread_handler()")
     global hass
+    global devices
 
     def detection_callback(device, advertisement_data):
         # print(device.address, "RSSI:", device.rssi, advertisement_data)
-        _LOGGER.debug("%s: RSSI:%d", device.address, device.rssi)
+        mac = device.address.lower()
+        if mac in devices:
+            bleDevice = devices.get(mac)
+            for manu_id in advertisement_data.manufacturer_data:
+                if manu_id in bleDevice.ads:
+                    ad = bleDevice.ads.get(manu_id)
+                    manufacturer_data = advertisement_data.manufacturer_data.get(manu_id)
+                    asyncio.run_coroutine_threadsafe(
+                        ad.update(manufacturer_data), hass.loop)
 
     while True:
         try:
