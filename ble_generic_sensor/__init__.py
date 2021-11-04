@@ -29,7 +29,7 @@ hass = None
 
 
 async def async_setup(hass: HomeAssistant, config):
-    _LOGGER.debug("async_setup()")
+    _LOGGER.info("async_setup()")
     x = threading.Thread(target=thread_func, args=(hass,), daemon=True)
     x.start()
     return True
@@ -60,13 +60,13 @@ async def thread_handler():
                     asyncio.run_coroutine_threadsafe(
                         ad.update(manufacturer_data), hass.loop)
 
+    scanner = BleakScanner()
+    scanner.register_detection_callback(detection_callback)
+    _LOGGER.info("BleakScanner started")
+    try:
+        await scanner.start()
+    except Exception as e:
+        _LOGGER.error(e)
     while True:
-        try:
-            scanner = BleakScanner()
-            scanner.register_detection_callback(detection_callback)
-            await scanner.start()
-            await asyncio.sleep(360.0)
-            await scanner.stop()
-        except Exception as e:
-            _LOGGER.error(e)
-            await asyncio.sleep(360.0)
+        await asyncio.sleep(10.0)
+        _LOGGER.info("Scanner thread alive...")

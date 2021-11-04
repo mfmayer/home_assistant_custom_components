@@ -134,9 +134,10 @@ class ReadDataSource(DataSource):
                 self.unpackedData = unpacked
             elif unpacked[0] == self.prefix:
                 self.unpackedData = unpacked
-
         except Exception as e:
             _LOGGER.warning(e)
+        finally:
+            await client.disconnect()
 
 
 class Entity(SensorEntity):
@@ -207,6 +208,8 @@ class Entity(SensorEntity):
 
 
 async def async_setup_platform(hass, conf, async_add_entities, discovery_info=None):
+    await asyncio.sleep(5.0)
+    _LOGGER.info("async_setup_platform()")
     readsConf = conf.get("reads")
     adsConf = conf.get("ads")
     entitiesToRegister = []
