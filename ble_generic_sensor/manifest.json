@@ -3,8 +3,10 @@
   "name": "Generic Bluetooth Advertise Sensor",
   "documentation": "https://github.com/mfmayer/home_assistant_custom_components/ble_generic_sensor",
   "dependencies": [],
-  "codeowners": [],
+  "codeowners": [
+    "@mfmayer"
+  ],
   "requirements": [],
   "iot_class": "local_polling",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

@@ -25,10 +25,15 @@ _LOGGER = logging.getLogger(__name__)
 
 
 try:
-    from bleak import BleakScanner, BleakClient
+    import bluepy
 except:
-    _LOGGER.error("Error while loading bleak")
+    _LOGGER.error("Error while loading bluepy")
 
+lockRead = threading.Lock()
+cvRead = threading.Condition()
+readRequest = 0
+cvScan = threading.Condition()
+scanPending = True
 devices = {}
 
 
@@ -50,7 +55,8 @@ class Device:
                         self.ads[ad.company_id] = ad
                         entitiesToRegister.extend(ad.entites)
                     else:
-                        _LOGGER.warning("Advertisement (\"ads\") config missing: %s", adKey)
+                        _LOGGER.warning(
+                            "Advertisement (\"ads\") config missing: %s", adKey)
                 except Exception as e:
                     _LOGGER.error(e)
 
@@ -63,7 +69,8 @@ class Device:
                         self.reads[read.char_uuid] = read
                         entitiesToRegister.extend(read.entites)
                     else:
-                        _LOGGER.warning("Characteristic read (\"reads\") config missing: %s", readKey)
+                        _LOGGER.warning(
+                            "Characteristic read (\"reads\") config missing: %s", readKey)
                 except:
                     _LOGGER.error(e)
 
@@ -101,13 +108,17 @@ class AdDataSource(DataSource):
         super().__init__(device, name, adConf, False)
 
     async def update(self, data: bytearray):
+        _LOGGER.debug("   Updated source: %s", self.name)
         unpacked = struct.unpack(self.unpack_format, data)
         if self.prefix == None:
             self.unpackedData = unpacked
         elif unpacked[0] == self.prefix:
             self.unpackedData = unpacked
+            _LOGGER.debug("      schedule entity updates (%d)",
+                          len(self.entities))
         for entity in self.entites:
-            entity.async_schedule_update_ha_state()
+            _LOGGER.debug("      schedule update: %s", entity.name)
+            entity.async_schedule_update_ha_state(True)
 
 
 class ReadDataSource(DataSource):
@@ -119,25 +130,50 @@ class ReadDataSource(DataSource):
         super().__init__(device, name, readConf, True)
 
     async def fetchUpdate(self):
+        global readRequest
+        global scanPending
+        global cvRead
+        global cvScan
+
         if time.monotonic() - self._last_update < self.interval:
             return
 
         _LOGGER.debug("Fetching update for source: %s", self.name)
         self._last_update = time.monotonic()
-        try:
-            client = BleakClient(self.device.mac, timeout=5)
-            await client.connect()
-            gattChar = await client.read_gatt_char(self.char_uuid)
-            unpacked = struct.unpack(self.unpack_format, gattChar)
-            _LOGGER.debug("Data retrieved from source: %s", self.name)
-            if self.prefix == None:
-                self.unpackedData = unpacked
-            elif unpacked[0] == self.prefix:
-                self.unpackedData = unpacked
-        except Exception as e:
-            _LOGGER.warning(e)
-        finally:
-            await client.disconnect()
+        with cvScan:
+            with cvRead:
+                readRequest = readRequest + 1
+                cvRead.notify()
+            while scanPending == True:
+                cvScan.wait()
+
+        with lockRead:
+            per = None
+            try:
+                _LOGGER.debug(
+                    "***connecting... (readRequest: %d scanPending: %s)", readRequest, scanPending)
+                per = bluepy.btle.Peripheral(self.device.mac)
+                _LOGGER.debug("   connected")
+                gattChar = per.getCharacteristics(uuid=self.char_uuid)[0]
+                gattCharRaw = gattChar.read()
+                unpacked = struct.unpack(self.unpack_format, gattCharRaw)
+                _LOGGER.debug("   Data retrieved from source: %s", self.name)
+                if self.prefix == None:
+                    self.unpackedData = unpacked
+                elif unpacked[0] == self.prefix:
+                    self.unpackedData = unpacked
+                # print("Model Number: {0}".format("".join(map(chr, gattChar))))
+            except Exception as e:
+                _LOGGER.warning(e)
+            finally:
+                _LOGGER.debug("   disconnecting...")
+                if per != None:
+                    per.disconnect()
+                _LOGGER.debug(
+                    "***disconnected  (readRequest: %d scanPending: %s)", readRequest, scanPending)
+                with cvRead:
+                    readRequest = readRequest - 1
+                    cvRead.notify()
 
 
 class Entity(SensorEntity):
@@ -197,7 +233,7 @@ class Entity(SensorEntity):
 
     @property
     def device_class(self):
-        """Return the icon of the sensor."""
+        """Return the class of the sensor."""
         return self._device_class
 
     async def async_update(self):
@@ -207,9 +243,65 @@ class Entity(SensorEntity):
         await self._datasource.fetchUpdate()
 
 
+class ScanDelegate(bluepy.btle.DefaultDelegate):
+    def __init__(self, hass):
+        self.hass = hass
+        bluepy.btle.DefaultDelegate.__init__(self)
+
+    def handleDiscovery(self, dev, isNewDev, isNewData):
+        mac = dev.addr
+        if mac in devices:
+            bleDevice = devices.get(mac)
+            data = dev.scanData.get(255)  # get manufacturer data
+            if data != None and len(data) > 2:
+                manu_id = struct.unpack("H", data[0:2])[0]
+                if manu_id in bleDevice.ads:
+                    ad = bleDevice.ads.get(manu_id)
+                    manu_data = data[2:len(data)]
+                    _LOGGER.debug(
+                        "***registered adv received: %s (%s):%s", mac, manu_id, manu_data.hex())
+                    asyncio.run_coroutine_threadsafe(
+                        ad.update(manu_data), self.hass.loop)
+
+
+def thread_func(hass):
+    async def thread_handler():
+        global readRequest
+        global scanPending
+        global cvRead
+        global cvScan
+        _LOGGER = logging.getLogger(__name__)
+        _LOGGER.debug("thread_func()")
+
+        scanner = bluepy.btle.Scanner().withDelegate(ScanDelegate(hass))
+        scanner.start(passive=True)
+        while True:
+            with cvRead:
+                while readRequest > 0:
+                    with cvScan:
+                        if scanPending == True:
+                            scanner.stop()
+                            scanPending = False
+                            _LOGGER.debug("scanning stopped")
+                        cvScan.notify()
+                    cvRead.wait()
+                if scanPending == False:
+                    with cvScan:
+                        scanPending = True
+                        scanner.start(passive=True)
+                        _LOGGER.debug("scanning started")
+                        cvScan.notify()
+            scanner.process(timeout=5.0)
+
+    asyncio.run(thread_handler())
+
+
 async def async_setup_platform(hass, conf, async_add_entities, discovery_info=None):
-    await asyncio.sleep(5.0)
+    # await asyncio.sleep(10.0)
     _LOGGER.info("async_setup_platform()")
+    x = threading.Thread(target=thread_func, args=(hass,), daemon=True)
+    x.start()
+
     readsConf = conf.get("reads")
     adsConf = conf.get("ads")
     entitiesToRegister = []
@@ -220,6 +312,6 @@ async def async_setup_platform(hass, conf, async_add_entities, discovery_info=No
         devices[device.mac] = device
         entitiesToRegister.extend(deviceEntities)
 
-    async_add_entities(entitiesToRegister, True)
+    async_add_entities(entitiesToRegister, False)
 
     return True
